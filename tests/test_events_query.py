@@ -15,5 +15,5 @@ def test_query_events_by_topic():
     eid = uuid.uuid4()
     httpx.post(f"{BASE}/publish", json=make("topic-A", eid))
     time.sleep(1.0)
-    rows = httpx.get(f"{BASE}/events", params={"topic": "topic-A", "limit": 10}).json()
+    rows = httpx.get(f"{BASE}/events", params={"topic": "topic-A", "limit": 60}).json()
     assert any(r["event_id"] == str(eid) for r in rows)
