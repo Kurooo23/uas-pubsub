@@ -1,0 +1,78 @@
+name: uas-pubsub
+
+services:
+  aggregator:
+    build: ./aggregator
+    image: uas-aggregator:latest
+    depends_on:
+      storage:
+        condition: service_healthy
+      broker:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:pass@storage:5432/uasdb
+      - REDIS_URL=redis://broker:6379/0
+      - WORKERS=4
+      - REDIS_STREAM=events_stream
+      - SERVICE_PORT=8080
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  publisher:
+    build: ./publisher
+    image: uas-publisher:latest
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    environment:
+      - TARGET_URL=http://aggregator:8080/publish
+      - EVENTS_TOTAL=20000
+      - DUP_RATE=0.3
+      - TOPICS=auth,payments,orders,logs
+      - QPS=200
+      - BATCH_SIZE=100
+    entrypoint: ["python", "-m", "app.main"]
+
+  broker:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - broker_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  storage:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=uasdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d uasdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build: ./tests
+    image: uas-tests:latest
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    environment:
+      - AGG_BASE=http://aggregator:8080
+    entrypoint: ["pytest", "-q", "-x"]
+
+volumes:
+  pg_data:
+  broker_data:
